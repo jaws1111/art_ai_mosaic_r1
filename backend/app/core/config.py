@@ -36,6 +36,9 @@ class Settings(BaseSettings):
     # Threshold scales with upscale_factor² because MSE is pixel-space distance;
     # a 2× upscale raises raw MSE ~4×.  Default 3600 = 900 × 4 for 2× upscale.
     overlap_mse_threshold: float = Field(default=3600.0, validation_alias="OVERLAP_MSE_THRESHOLD")
+    # How many blueprint crops to send to xAI per tile (1–3).
+    # 1 = only this tile's crop; 2 = + left neighbour; 3 = + left + top neighbours.
+    max_blueprint_crops: int = Field(default=3, ge=1, le=3, validation_alias="MAX_BLUEPRINT_CROPS")
     max_tile_retries: int = Field(default=1, ge=0, le=3, validation_alias="MAX_TILE_RETRIES")
     quality_review_max_px: int = Field(default=2048, validation_alias="QUALITY_REVIEW_MAX_PX")
     quality_ai_critique_enabled: bool = Field(default=True, validation_alias="QUALITY_AI_CRITIQUE_ENABLED")

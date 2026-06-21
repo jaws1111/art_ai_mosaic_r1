@@ -147,6 +147,7 @@ export default function App() {
   const [canvasMode, setCanvasMode] = useState<CanvasMode>("standard");
   const [upscaleFactor, setUpscaleFactor] = useState(2);
   const [maxConcurrency, setMaxConcurrency] = useState(2);
+  const [maxBlueprintCrops, setMaxBlueprintCrops] = useState(3);
   const [useRegions, setUseRegions] = useState(false);
   const [regions, setRegions] = useState<PromptRegion[]>([]);
   const [runQualityCheck, setRunQualityCheck] = useState(false);
@@ -201,6 +202,7 @@ export default function App() {
       include_ai_critique: includeAiCritique,
       upscale_factor: upscaleFactor,
       max_concurrency: maxConcurrency,
+      max_blueprint_crops: maxBlueprintCrops,
     };
     try {
       const job = await createJob(body);
@@ -423,6 +425,33 @@ export default function App() {
                 </select>
               </label>
             </div>
+            <label className="space-y-1">
+              <span className="text-[10px] text-neutral-500">Blueprint crops per tile</span>
+              <div className="flex gap-1.5">
+                {[
+                  { v: 1, label: "1 — own crop only" },
+                  { v: 2, label: "2 — + left context" },
+                  { v: 3, label: "3 — + left + top" },
+                ].map(({ v, label }) => (
+                  <button
+                    key={v}
+                    type="button"
+                    onClick={() => setMaxBlueprintCrops(v)}
+                    className={[
+                      "flex-1 py-1.5 text-[10px] rounded border transition-colors",
+                      maxBlueprintCrops === v
+                        ? "bg-accent/20 border-accent text-accent"
+                        : "bg-neutral-900 border-neutral-700 text-neutral-500 hover:border-neutral-500 hover:text-neutral-300",
+                    ].join(" ")}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+              <p className="text-[9px] text-neutral-600">
+                Neighbouring blueprint crops give xAI edge-matching context (xAI limit: 3 images).
+              </p>
+            </label>
           </Section>
 
           {/* REGIONS */}

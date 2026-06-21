@@ -144,25 +144,29 @@ class XAIImageEngine:
     async def generate_tile(
         self,
         prompt: str,
-        blueprint_crop_path: Path,
-        left_neighbor_path: Path | None,
-        top_neighbor_path: Path | None,
+        reference_crops: list[Path],
         output_path: Path,
         aspect_ratio: str = "1:1",
         resolution: str = "2k",
     ) -> Path:
         """
-        Crop-enhance strategy: send the blueprint crop as the sole reference image and
-        ask xAI to re-render it with richer detail.  Neighbor paths are accepted for
-        API compatibility but intentionally ignored — keeping the reference list to one
-        image prevents xAI from blending neighbour content into the wrong tile.
+        Crop-enhance strategy.
+
+        `reference_crops` is an ordered list of up to 3 blueprint crop paths:
+          [0] = this tile's own crop (primary — always present)
+          [1] = left neighbour's blueprint crop (context, optional)
+          [2] = top neighbour's blueprint crop  (context, optional)
+
+        All slots must be filled; unused slots are padded with the black placeholder.
+        All crops come from the same master blueprint so there is no content cross-contamination.
         """
         placeholder = self.placeholder_path
         images = [
-            self._image_ref(blueprint_crop_path),
-            self._image_ref(placeholder),
-            self._image_ref(placeholder),
+            self._image_ref(p if p.is_file() else placeholder)
+            for p in reference_crops[:3]
         ]
+        while len(images) < 3:
+            images.append(self._image_ref(placeholder))
 
         payload = {
             "model": self.settings.xai_model,

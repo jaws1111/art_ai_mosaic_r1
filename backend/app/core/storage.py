@@ -73,6 +73,14 @@ class RunPaths:
         label = coord_label(row, col)
         return self.working_refs_dir / f"{seq_label(sequence)}_ref_blueprint_crop_{label}.png"
 
+    def blueprint_crop_stable_path(self, row: int, col: int) -> Path:
+        """Stable path for the blueprint crop keyed only by (row, col).
+
+        Used so neighbouring tiles can look up the crop without knowing the seq number.
+        """
+        label = coord_label(row, col)
+        return self.working_refs_dir / f"blueprint_crop_{label}.png"
+
     def ref_left_strip_path(self, sequence: int, row: int, col: int) -> Path:
         label = coord_label(row, col)
         return self.working_refs_dir / f"{seq_label(sequence)}_ref_left_strip_{label}.png"

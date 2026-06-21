@@ -72,8 +72,11 @@ def build_tile_prompt(
     has_top: bool = False,
 ) -> str:
     """
-    Crop-enhance strategy: IMAGE_0 is the exact blueprint crop for this tile.
-    The task is a detail-enhancement pass — same composition, richer texture.
+    Crop-enhance strategy.
+    IMAGE_0 = this tile's blueprint crop (primary reference — always present).
+    IMAGE_1 = left neighbour's blueprint crop (edge-matching context, if sent).
+    IMAGE_2 = top neighbour's blueprint crop  (edge-matching context, if sent).
+    All crops come from the same master blueprint so content is always consistent.
     """
     spatial = spatial_context_for_tile(row, col, rows, cols)
     if regions:
@@ -81,17 +84,44 @@ def build_tile_prompt(
             style_anchor, master_prompt, regions, row, col, rows, cols, spatial
         )
     anchor = (style_anchor.rstrip(", ") + ", ") if style_anchor else ""
+
+    # Describe what each image slot contains so xAI understands the spatial relationship.
+    img_desc: list[str] = [
+        "IMAGE_0 = the blueprint crop for THIS tile — your PRIMARY reference. "
+        "Re-render it with maximum detail while keeping composition IDENTICAL."
+    ]
+    if has_left:
+        img_desc.append(
+            "IMAGE_1 = the blueprint crop for the LEFT-ADJACENT tile. "
+            "Your output's LEFT EDGE must match IMAGE_1's right edge seamlessly in content and lighting."
+        )
+    if has_top:
+        top_idx = 2 if has_left else 1
+        img_desc.append(
+            f"IMAGE_{top_idx} = the blueprint crop for the TOP-ADJACENT tile. "
+            f"Your output's TOP EDGE must match IMAGE_{top_idx}'s bottom edge seamlessly."
+        )
+
+    edge_rule = ""
+    if has_left or has_top:
+        edges = []
+        if has_left: edges.append("left")
+        if has_top:  edges.append("top")
+        edge_rule = (
+            f"At the {' and '.join(edges)} edge(s), blend seamlessly with the adjacent tiles shown. "
+        )
+
     return (
-        f"{anchor}ultra-high detail 2K re-render. "
-        f"DETAIL ENHANCEMENT TASK: IMAGE_0 shows the exact reference crop for the {spatial} "
-        f"section of this scene — {master_prompt}. "
-        f"Re-render IMAGE_0 with significantly richer quality: add fine surface textures, "
-        f"intricate architectural or natural detail, volumetric lighting, atmospheric depth, "
-        f"and micro-level sharpness that the reference lacks. "
-        f"CRITICAL RULES: (1) Keep IDENTICAL composition, framing, camera angle, and subject "
-        f"placement as IMAGE_0. (2) Do NOT zoom out, pan, or reveal content outside the frame "
-        f"of IMAGE_0. (3) Do NOT add or remove major elements. (4) Preserve colour palette and "
-        f"overall mood. Output must look like a high-quality re-render of IMAGE_0."
+        f"{anchor}ultra-high detail 2K re-render of this {spatial} section. "
+        f"Scene context: {master_prompt}. "
+        f"DETAIL ENHANCEMENT TASK: {' '.join(img_desc)} "
+        f"Add fine surface textures, intricate structural detail, volumetric lighting, "
+        f"atmospheric depth, and micro-level sharpness that the blueprint references lack. "
+        f"{edge_rule}"
+        f"CRITICAL: (1) Keep IDENTICAL composition/framing/scale as IMAGE_0. "
+        f"(2) Do NOT zoom out or show content outside IMAGE_0's frame. "
+        f"(3) Do NOT add or remove major scene elements. "
+        f"(4) Preserve colour palette and overall mood."
     )
 
 
@@ -738,9 +768,7 @@ class MosaicService:
                         plan.cols,
                         regions=request.regions or None,
                     ),
-                    blueprint_crop_path=crop_path,
-                    left_neighbor_path=None,
-                    top_neighbor_path=None,
+                    reference_crops=[crop_path],
                     output_path=tile_path,
                     aspect_ratio="1:1",
                     resolution="2k",
@@ -803,6 +831,8 @@ class MosaicService:
         semaphore = asyncio.Semaphore(request.max_concurrency)
         tile_paths: dict[str, Path] = {}
         processed_paths: dict[str, Path] = {}
+        # Stable blueprint crops keyed by "row,col" — looked up by neighbours.
+        blueprint_crop_paths: dict[str, Path] = {}
         xai_lock = asyncio.Lock()
         active_xai = 0
 
@@ -942,17 +972,41 @@ class MosaicService:
                             cpu_active=True,
                             cpu_label=f"Crop/refs r{row}c{col}",
                         )
+                        # Save blueprint crop at a stable (row,col)-keyed path so
+                        # neighbours can look it up without knowing the seq number.
+                        stable_crop_path = paths.blueprint_crop_stable_path(row, col)
+                        crop_img = crop_blueprint_for_tile(blueprint_path, row, col, plan)
+                        save_rgb_image(crop_img, stable_crop_path)
+                        # Also save the seq-labelled copy for the refs archive.
                         crop_path = paths.ref_blueprint_crop_path(seq, row, col)
-                        save_rgb_image(
-                            crop_blueprint_for_tile(blueprint_path, row, col, plan), crop_path
-                        )
+                        save_rgb_image(crop_img, crop_path)
+                        blueprint_crop_paths[key] = stable_crop_path
+
+                        # Build ordered reference list: own crop first, then left, then top.
+                        max_crops = request.max_blueprint_crops
+                        left_crop = blueprint_crop_paths.get(tile_key(row, col - 1)) if col > 0 and max_crops >= 2 else None
+                        top_crop = blueprint_crop_paths.get(tile_key(row - 1, col)) if row > 0 and max_crops >= 3 else None
+                        has_left_crop = left_crop is not None and left_crop.is_file()
+                        has_top_crop = top_crop is not None and top_crop.is_file()
+
+                        reference_crops: list[Path] = [stable_crop_path]
+                        if has_left_crop and left_crop is not None:
+                            reference_crops.append(left_crop)
+                        if has_top_crop and top_crop is not None:
+                            reference_crops.append(top_crop)
 
                         tile_path = paths.tile_path(seq, row, col)
-                        # Full processed (upscaled) neighbors — used as primary outpainting refs.
                         left_processed = processed_paths.get(tile_key(row, col - 1)) if col > 0 else None
                         top_processed = processed_paths.get(tile_key(row - 1, col)) if row > 0 else None
                         processed_path = paths.processed_tile_path(seq, row, col)
                         max_attempts = 1 + self.settings.max_tile_retries
+
+                        crops_label = f"{len(reference_crops)} blueprint crop{'s' if len(reference_crops) > 1 else ''}"
+                        await self._log(
+                            job_id, "cpu",
+                            f"Blueprint crops r{row}c{col}",
+                            f"{crops_label} prepared (own{'+ left' if has_left_crop else ''}{'+ top' if has_top_crop else ''})",
+                        )
 
                         for attempt in range(max_attempts):
                             if attempt > 0:
@@ -978,13 +1032,10 @@ class MosaicService:
                                         plan.rows,
                                         plan.cols,
                                         regions=request.regions or None,
-                                        has_left=left_processed is not None and left_processed.is_file(),
-                                        has_top=top_processed is not None and top_processed.is_file(),
+                                        has_left=has_left_crop,
+                                        has_top=has_top_crop,
                                     ),
-                                    blueprint_crop_path=crop_path,
-                                    # Pass full processed tiles; xAI resizes to 1024px internally.
-                                    left_neighbor_path=left_processed,
-                                    top_neighbor_path=top_processed,
+                                    reference_crops=reference_crops,
                                     output_path=tile_path,
                                     aspect_ratio="1:1",
                                     resolution="2k",

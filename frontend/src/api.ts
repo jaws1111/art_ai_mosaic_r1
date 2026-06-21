@@ -94,6 +94,7 @@ export interface MosaicJobCreate {
   upscale_factor?: number;
   overlap_fraction?: number;
   max_concurrency?: number;
+  max_blueprint_crops?: number;
 }
 
 export interface PromptRegion {
