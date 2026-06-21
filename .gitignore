@@ -1,0 +1,60 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / Frontend
+node_modules/
+dist/
+.vite/
+*.local
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+*.pem
+credentials.json
+
+# Generated artifacts
+tiles/
+output/
+canvas.dat
+*.tif
+*.tiff
+*.bigtiff
+jobs/
+*.db
+*.sqlite
+*.sqlite3
+
+# ComfyUI / models (large binaries)
+models/
+ComfyUI/
+*.safetensors
+*.ckpt
+*.pth
+
+# OS & IDE
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+*.log
+logs/
