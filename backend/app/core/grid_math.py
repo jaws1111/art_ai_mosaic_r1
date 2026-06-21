@@ -76,6 +76,11 @@ class GenerationMode(str, Enum):
     BLUEPRINT_DIRECT = "blueprint_direct"
 
 
+# Crop-enhance detail limit: ratio of xAI output px to blueprint-crop px.
+# Above this value xAI must invent too much detail, degrading quality.
+CROP_UPSCALE_SWEET_SPOT = 1.30
+
+
 class GridPlan(BaseModel):
     rows: int
     cols: int
@@ -94,6 +99,9 @@ class GridPlan(BaseModel):
     strategy_message: str = ""
     local_upscale_factor: int = 1
     use_mosaic_stitch: bool = True
+    # Ratio of xAI output size to blueprint crop size per tile.
+    # Values > CROP_UPSCALE_SWEET_SPOT mean xAI must invent excessive new content.
+    crop_upscale_ratio: float = 1.0
 
     @property
     def tile_count(self) -> int:
@@ -102,6 +110,18 @@ class GridPlan(BaseModel):
     @property
     def long_edge(self) -> int:
         return max(self.width_px, self.height_px)
+
+    @property
+    def crop_quality_warning(self) -> str | None:
+        """Human-readable warning when the crop upscale ratio exceeds the sweet spot."""
+        if self.crop_upscale_ratio > CROP_UPSCALE_SWEET_SPOT and self.generation_mode == GenerationMode.MOSAIC:
+            pct = int((self.crop_upscale_ratio - 1) * 100)
+            return (
+                f"Grid too fine for reliable crop-enhance: xAI must invent {pct}% new detail per tile "
+                f"(sweet spot ≤{int((CROP_UPSCALE_SWEET_SPOT-1)*100)}%). "
+                f"Reduce canvas size or use fewer tiles for better results."
+            )
+        return None
 
 
 def tile_key(row: int, col: int) -> str:
@@ -394,6 +414,14 @@ def build_grid_plan(request: GridPlanRequest) -> GridPlan:
         wrap_vertical=request.wrap_vertical,
     )
 
+    # Compute how much new content xAI must invent per tile.
+    # Blueprint is BLUEPRINT_NATIVE_PX px; each tile covers 1/(rows×cols) of the canvas.
+    # The blueprint crop fed to xAI is blueprint_px / sqrt(rows * cols) in linear terms.
+    # xAI always outputs BLUEPRINT_NATIVE_PX px, so the upscale ratio is sqrt(rows * cols).
+    blueprint_px = BLUEPRINT_NATIVE_PX
+    bp_crop_linear = blueprint_px / math.sqrt(max(1, rows * cols))
+    crop_upscale_ratio = round(blueprint_px / max(1.0, bp_crop_linear), 3)  # == sqrt(rows*cols)
+
     return GridPlan(
         rows=rows,
         cols=cols,
@@ -412,6 +440,7 @@ def build_grid_plan(request: GridPlanRequest) -> GridPlan:
         strategy_message=msg,
         local_upscale_factor=local_up,
         use_mosaic_stitch=use_stitch,
+        crop_upscale_ratio=crop_upscale_ratio,
     )
 
 

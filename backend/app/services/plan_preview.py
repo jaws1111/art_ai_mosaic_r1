@@ -27,6 +27,8 @@ class PlanPreviewResponse(BaseModel):
     use_mosaic_stitch: bool
     width_px: int
     height_px: int
+    crop_upscale_ratio: float = 1.0
+    crop_quality_warning: str | None = None
 
 
 def preview_plan(request: PlanPreviewRequest) -> PlanPreviewResponse:
@@ -65,4 +67,6 @@ def preview_plan(request: PlanPreviewRequest) -> PlanPreviewResponse:
         use_mosaic_stitch=plan.use_mosaic_stitch,
         width_px=plan.width_px,
         height_px=plan.height_px,
+        crop_upscale_ratio=plan.crop_upscale_ratio,
+        crop_quality_warning=plan.crop_quality_warning,
     )

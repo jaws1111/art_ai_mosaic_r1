@@ -71,61 +71,27 @@ def build_tile_prompt(
     has_left: bool = False,
     has_top: bool = False,
 ) -> str:
+    """
+    Crop-enhance strategy: IMAGE_0 is the exact blueprint crop for this tile.
+    The task is a detail-enhancement pass — same composition, richer texture.
+    """
     spatial = spatial_context_for_tile(row, col, rows, cols)
     if regions:
         return build_regional_tile_prompt(
             style_anchor, master_prompt, regions, row, col, rows, cols, spatial
         )
     anchor = (style_anchor.rstrip(", ") + ", ") if style_anchor else ""
-
-    img_idx = 0
-    context_lines: list[str] = []
-    direction_lines: list[str] = []
-
-    if has_left:
-        context_lines.append(
-            f"<IMAGE_{img_idx}> is the ALREADY-GENERATED LEFT TILE — your output must seamlessly "
-            f"continue from its RIGHT EDGE with matching content, lighting, scale, and perspective."
-        )
-        direction_lines.append("continue RIGHTWARD from IMAGE_0")
-        img_idx += 1
-
-    if has_top:
-        context_lines.append(
-            f"<IMAGE_{img_idx}> is the ALREADY-GENERATED TOP TILE — your output must seamlessly "
-            f"continue from its BOTTOM EDGE with matching content, lighting, scale, and perspective."
-        )
-        direction_lines.append(f"continue DOWNWARD from IMAGE_{img_idx}")
-        img_idx += 1
-
-    context_lines.append(
-        f"<IMAGE_{img_idx}> is the CONTENT BLUEPRINT showing what should appear in this "
-        f"{spatial} section — use it as a subject/content GUIDE for what to render, NOT as a "
-        f"composition to reproduce at full scale."
-    )
-
-    if direction_lines:
-        outpaint_instruction = (
-            f"OUTPAINTING TASK: {' AND '.join(direction_lines).upper()}. "
-            f"Generate the {spatial} section of this mosaic by extending the neighboring tiles. "
-            f"The output must fit naturally when placed adjacent to those tiles — same scale, "
-            f"same perspective, seamless edges. "
-        )
-    else:
-        outpaint_instruction = (
-            f"Generate the {spatial} section of this mosaic. This is the starting tile; render "
-            f"it with rich detail matching the blueprint exactly in composition and scale. "
-        )
-
     return (
-        f"{anchor}ultra-high detail, 2K resolution. "
-        f"Full scene: {master_prompt}. "
-        f"Tile {row + 1}/{rows} × {col + 1}/{cols} — {spatial} section. "
-        f"{outpaint_instruction}"
-        f"{' '.join(context_lines)} "
-        f"Render with rich surface textures, volumetric lighting, fine structural detail. "
-        f"DO NOT show the full wide scene — only this local {spatial} section at close detail range. "
-        f"DO NOT change the scale or camera angle relative to the blueprint."
+        f"{anchor}ultra-high detail 2K re-render. "
+        f"DETAIL ENHANCEMENT TASK: IMAGE_0 shows the exact reference crop for the {spatial} "
+        f"section of this scene — {master_prompt}. "
+        f"Re-render IMAGE_0 with significantly richer quality: add fine surface textures, "
+        f"intricate architectural or natural detail, volumetric lighting, atmospheric depth, "
+        f"and micro-level sharpness that the reference lacks. "
+        f"CRITICAL RULES: (1) Keep IDENTICAL composition, framing, camera angle, and subject "
+        f"placement as IMAGE_0. (2) Do NOT zoom out, pan, or reveal content outside the frame "
+        f"of IMAGE_0. (3) Do NOT add or remove major elements. (4) Preserve colour palette and "
+        f"overall mood. Output must look like a high-quality re-render of IMAGE_0."
     )
 
 

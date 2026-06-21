@@ -120,6 +120,8 @@ export interface PlanPreview {
   use_mosaic_stitch: boolean;
   width_px: number;
   height_px: number;
+  crop_upscale_ratio: number;
+  crop_quality_warning: string | null;
 }
 
 export interface PlanPreviewRequest {

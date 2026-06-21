@@ -78,11 +78,31 @@ const selectCls =
   "w-full bg-neutral-900 border border-neutral-700 rounded-md px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-accent transition-colors appearance-none";
 
 // ── plan preview badge ────────────────────────────────────────────────────────
+function CropQualityBar({ ratio }: { ratio: number }) {
+  // Sweet spot ≤ 1.30 (green), marginal ≤ 2.0 (amber), poor > 2.0 (red)
+  const pct = Math.min(100, Math.round((ratio - 1) / (3 - 1) * 100));
+  const color = ratio <= 1.3 ? "bg-emerald-500" : ratio <= 2.0 ? "bg-amber-500" : "bg-red-500";
+  const label = ratio <= 1.3 ? "detail quality: excellent" : ratio <= 2.0 ? "detail quality: marginal" : "detail quality: poor";
+  return (
+    <div className="space-y-0.5">
+      <div className="flex items-center justify-between text-[9px]">
+        <span className={ratio <= 1.3 ? "text-emerald-400" : ratio <= 2.0 ? "text-amber-400" : "text-red-400"}>
+          {label}
+        </span>
+        <span className="text-neutral-500">{ratio.toFixed(1)}× crop→tile</span>
+      </div>
+      <div className="h-1 rounded-full bg-neutral-800 overflow-hidden">
+        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+    </div>
+  );
+}
+
 function PlanBadge({ plan, mode }: { plan: PlanPreview; mode: CanvasMode }) {
   const key = plan.generation_mode.replace(/_/g, " ");
   const cls = MODE_COLOR[plan.generation_mode] ?? "text-neutral-400 bg-neutral-800 border-neutral-700";
   return (
-    <div className={`rounded-lg border p-3 space-y-1.5 ${cls}`}>
+    <div className={`rounded-lg border p-3 space-y-2 ${cls}`}>
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold capitalize">{key}</span>
         <span className="text-[10px] opacity-70">
@@ -103,6 +123,14 @@ function PlanBadge({ plan, mode }: { plan: PlanPreview; mode: CanvasMode }) {
           <span className="text-amber-300">↻ wrap</span>
         )}
       </div>
+      {plan.use_mosaic_stitch && (
+        <CropQualityBar ratio={plan.crop_upscale_ratio ?? 1} />
+      )}
+      {plan.crop_quality_warning && (
+        <p className="text-[9px] text-amber-400 leading-snug border-t border-amber-900/40 pt-1.5">
+          ⚠ {plan.crop_quality_warning}
+        </p>
+      )}
     </div>
   );
 }
