@@ -27,7 +27,12 @@ dist/
 *.pem
 credentials.json
 
-# Generated artifacts
+# Generated artifacts (see doc/STORAGE_ARCHITECTURE.md)
+data/runs/**/*
+!data/runs/.gitkeep
+data/cache/**/*
+!data/cache/.gitkeep
+data/state/
 tiles/
 output/
 canvas.dat

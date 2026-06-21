@@ -17,7 +17,7 @@ Tessera is a Windows 10 desktop/web-hybrid application that:
 |----------|-------------|
 | [MASTER_PLAN.md](doc/MASTER_PLAN.md) | Consolidated architecture, phases, and implementation roadmap |
 | [mosaic-image-engine-plan.md](doc/mosaic-image-engine-plan.md) | Original research & architecture plan |
-| [mosaic-image-engine-plan2_complete.md](doc/mosaic-image-engine-plan2_complete.md) | Tessera v3 UX/UI specification |
+| [STORAGE_ARCHITECTURE.md](doc/STORAGE_ARCHITECTURE.md) | Image folder layout (working vs final, sequencing) |
 
 ## Tech Stack
 
@@ -35,7 +35,35 @@ Tessera is a Windows 10 desktop/web-hybrid application that:
 
 ## Status
 
-**Phase 0 — Planning complete.** Implementation not yet started. See [MASTER_PLAN.md](doc/MASTER_PLAN.md) for the build sequence.
+# Phase 1 — Core pipeline (in progress)
+
+**Windows shortcuts** (project root):
+
+| Script | Action |
+|--------|--------|
+| `launch.cmd` | Start API + Vite in separate windows |
+| `status.cmd` | Show whether ports 8000 / 5522 are running |
+| `stop-vite.cmd` | Stop Vite dev server (port 5522) |
+| `stop-backend.cmd` | Stop FastAPI (port 8000) |
+
+```powershell
+# Or manually:
+cd backend
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python run.py
+
+# Frontend (separate terminal)
+cd frontend
+npm install
+npm run dev
+```
+
+API: http://127.0.0.1:8000 · UI: http://127.0.0.1:5522
+
+See [STORAGE_ARCHITECTURE.md](doc/STORAGE_ARCHITECTURE.md) for image folder layout.
+
+See [MASTER_PLAN.md](doc/MASTER_PLAN.md) for the full build sequence.
 
 ## License
 
