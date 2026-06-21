@@ -1,16 +1,18 @@
-"""Async xAI Imagine API adapter with strict 3-image tile rules."""
+"""Async xAI Imagine API adapter — outpainting strategy with neighbor-first references."""
 
 from __future__ import annotations
 
 import asyncio
 import logging
+import tempfile
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 import httpx
+from PIL import Image
 
 from app.core.config import Settings
-from app.services.image_utils import ensure_placeholder_file, image_to_data_url
+from app.services.image_utils import ensure_placeholder_file, ensure_rgb_image, image_to_data_url, save_rgb_image
 
 logger = logging.getLogger(__name__)
 
@@ -141,6 +143,22 @@ class XAIImageEngine:
     def _image_ref(self, path: Path) -> dict[str, str]:
         return {"url": image_to_data_url(path), "type": "image_url"}
 
+    def _resized_ref(self, path: Path, max_px: int = 1024) -> dict[str, str]:
+        """Return an image_ref with the image resized to at most max_px on the long edge."""
+        img = ensure_rgb_image(path)
+        w, h = img.size
+        if max(w, h) > max_px:
+            scale = max_px / max(w, h)
+            img = img.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.Resampling.LANCZOS)
+        with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as f:
+            tmp = Path(f.name)
+        save_rgb_image(img, tmp)
+        try:
+            ref = self._image_ref(tmp)
+        finally:
+            tmp.unlink(missing_ok=True)
+        return ref
+
     async def generate_tile(
         self,
         prompt: str,
@@ -151,19 +169,30 @@ class XAIImageEngine:
         aspect_ratio: str = "1:1",
         resolution: str = "2k",
     ) -> Path:
-        left_path = left_neighbor_path or self.placeholder_path
-        top_path = top_neighbor_path or self.placeholder_path
+        """
+        Outpainting strategy:
+          - Neighbors (full tiles resized to 1024px) are IMAGE_0 / IMAGE_1 — primary context.
+          - Blueprint crop is IMAGE_2 — content/style guide.
+        When no neighbors exist (first tile) the blueprint crop is the sole reference.
+        """
+        images: list[dict[str, str]] = []
 
-        images = [
-            self._image_ref(blueprint_crop_path),
-            self._image_ref(left_path),
-            self._image_ref(top_path),
-        ]
+        if left_neighbor_path and left_neighbor_path.is_file():
+            images.append(self._resized_ref(left_neighbor_path))
+        if top_neighbor_path and top_neighbor_path.is_file():
+            images.append(self._resized_ref(top_neighbor_path))
+
+        # Blueprint crop fills the remaining slots (always include)
+        images.append(self._resized_ref(blueprint_crop_path, max_px=2048))
+
+        # xAI edits endpoint requires exactly 3 images
+        while len(images) < 3:
+            images.append(self._image_ref(self.placeholder_path))
 
         payload = {
             "model": self.settings.xai_model,
             "prompt": prompt,
-            "images": images,
+            "images": images[:3],
             "aspect_ratio": aspect_ratio,
             "resolution": resolution,
             "n": 1,

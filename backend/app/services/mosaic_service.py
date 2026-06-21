@@ -33,7 +33,6 @@ from app.services.image_utils import (
     crop_blueprint_for_tile,
     ensure_rgb_image,
     normalize_blueprint_for_plan,
-    save_overlap_reference,
     save_rgb_image,
 )
 from app.services.job_store import JobStore
@@ -69,6 +68,8 @@ def build_tile_prompt(
     rows: int,
     cols: int,
     regions: list[PromptRegion] | None = None,
+    has_left: bool = False,
+    has_top: bool = False,
 ) -> str:
     spatial = spatial_context_for_tile(row, col, rows, cols)
     if regions:
@@ -76,17 +77,55 @@ def build_tile_prompt(
             style_anchor, master_prompt, regions, row, col, rows, cols, spatial
         )
     anchor = (style_anchor.rstrip(", ") + ", ") if style_anchor else ""
+
+    img_idx = 0
+    context_lines: list[str] = []
+    direction_lines: list[str] = []
+
+    if has_left:
+        context_lines.append(
+            f"<IMAGE_{img_idx}> is the ALREADY-GENERATED LEFT TILE — your output must seamlessly "
+            f"continue from its RIGHT EDGE with matching content, lighting, scale, and perspective."
+        )
+        direction_lines.append("continue RIGHTWARD from IMAGE_0")
+        img_idx += 1
+
+    if has_top:
+        context_lines.append(
+            f"<IMAGE_{img_idx}> is the ALREADY-GENERATED TOP TILE — your output must seamlessly "
+            f"continue from its BOTTOM EDGE with matching content, lighting, scale, and perspective."
+        )
+        direction_lines.append(f"continue DOWNWARD from IMAGE_{img_idx}")
+        img_idx += 1
+
+    context_lines.append(
+        f"<IMAGE_{img_idx}> is the CONTENT BLUEPRINT showing what should appear in this "
+        f"{spatial} section — use it as a subject/content GUIDE for what to render, NOT as a "
+        f"composition to reproduce at full scale."
+    )
+
+    if direction_lines:
+        outpaint_instruction = (
+            f"OUTPAINTING TASK: {' AND '.join(direction_lines).upper()}. "
+            f"Generate the {spatial} section of this mosaic by extending the neighboring tiles. "
+            f"The output must fit naturally when placed adjacent to those tiles — same scale, "
+            f"same perspective, seamless edges. "
+        )
+    else:
+        outpaint_instruction = (
+            f"Generate the {spatial} section of this mosaic. This is the starting tile; render "
+            f"it with rich detail matching the blueprint exactly in composition and scale. "
+        )
+
     return (
-        f"{anchor}ultra-high detail, 2K resolution render. "
-        f"Scene: {master_prompt}. "
-        f"This is tile row {row + 1}/{rows}, col {col + 1}/{cols} ({spatial}). "
-        "<IMAGE_0> defines the COMPOSITION and SUBJECT PLACEMENT for this region — use it as a "
-        "layout guide. Now render this region at FULL 2K quality: add rich surface textures, "
-        "fine structural details, volumetric lighting, atmospheric depth, and surface imperfections "
-        "that the rough blueprint sketch does not show. Every surface should be detailed. "
-        "Do NOT zoom out to show the full scene. Keep subjects at the same scale as IMAGE_0. "
-        "<IMAGE_1> = left neighbour edge (match colour/lighting at left boundary seamlessly). "
-        "<IMAGE_2> = top neighbour edge (match colour/lighting at top boundary seamlessly)."
+        f"{anchor}ultra-high detail, 2K resolution. "
+        f"Full scene: {master_prompt}. "
+        f"Tile {row + 1}/{rows} × {col + 1}/{cols} — {spatial} section. "
+        f"{outpaint_instruction}"
+        f"{' '.join(context_lines)} "
+        f"Render with rich surface textures, volumetric lighting, fine structural detail. "
+        f"DO NOT show the full wide scene — only this local {spatial} section at close detail range. "
+        f"DO NOT change the scale or camera angle relative to the blueprint."
     )
 
 
@@ -798,8 +837,6 @@ class MosaicService:
         semaphore = asyncio.Semaphore(request.max_concurrency)
         tile_paths: dict[str, Path] = {}
         processed_paths: dict[str, Path] = {}
-        left_ref_paths: dict[str, Path] = {}
-        top_ref_paths: dict[str, Path] = {}
         xai_lock = asyncio.Lock()
         active_xai = 0
 
@@ -944,9 +981,8 @@ class MosaicService:
                             crop_blueprint_for_tile(blueprint_path, row, col, plan), crop_path
                         )
 
-                        left_ref = left_ref_paths.get(tile_key(row, col - 1)) if col > 0 else None
-                        top_ref = top_ref_paths.get(tile_key(row - 1, col)) if row > 0 else None
                         tile_path = paths.tile_path(seq, row, col)
+                        # Full processed (upscaled) neighbors — used as primary outpainting refs.
                         left_processed = processed_paths.get(tile_key(row, col - 1)) if col > 0 else None
                         top_processed = processed_paths.get(tile_key(row - 1, col)) if row > 0 else None
                         processed_path = paths.processed_tile_path(seq, row, col)
@@ -976,10 +1012,13 @@ class MosaicService:
                                         plan.rows,
                                         plan.cols,
                                         regions=request.regions or None,
+                                        has_left=left_processed is not None and left_processed.is_file(),
+                                        has_top=top_processed is not None and top_processed.is_file(),
                                     ),
                                     blueprint_crop_path=crop_path,
-                                    left_neighbor_path=left_ref,
-                                    top_neighbor_path=top_ref,
+                                    # Pass full processed tiles; xAI resizes to 1024px internally.
+                                    left_neighbor_path=left_processed,
+                                    top_neighbor_path=top_processed,
                                     output_path=tile_path,
                                     aspect_ratio="1:1",
                                     resolution="2k",
@@ -1005,25 +1044,6 @@ class MosaicService:
                             # Overlap reference strips are extracted from the *processed*
                             # (upscaled) tile so that size and sharpening match the
                             # neighbors used in seam QA comparison.
-                            await self._set_workers(
-                                job_id,
-                                cpu_active=True,
-                                cpu_label=f"Overlap strips r{row}c{col}",
-                            )
-                            left_strip = paths.ref_left_strip_path(seq, row, col)
-                            top_strip = paths.ref_top_strip_path(seq, row, col)
-                            # Strips for xAI context come from the processed (upscaled) tile
-                            # so neighboring tiles see high-resolution, sharpened edges.
-                            strip_source = processed_path if processed_path.is_file() else tile_path
-                            save_overlap_reference(
-                                strip_source, "right", plan.overlap_px, left_strip, self.settings.placeholder_size
-                            )
-                            save_overlap_reference(
-                                strip_source, "bottom", plan.overlap_px, top_strip, self.settings.placeholder_size
-                            )
-                            left_ref_paths[key] = left_strip
-                            top_ref_paths[key] = top_strip
-
                             if not left_processed and not top_processed:
                                 break
                             worst_mse, qa_ok, qa_notes = score_tile_seams(
