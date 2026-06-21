@@ -33,7 +33,9 @@ class Settings(BaseSettings):
     local_upscale_factor: int = 2
     overlap_fraction: float = 0.25
     placeholder_size: int = 512
-    overlap_mse_threshold: float = Field(default=900.0, validation_alias="OVERLAP_MSE_THRESHOLD")
+    # Threshold scales with upscale_factor² because MSE is pixel-space distance;
+    # a 2× upscale raises raw MSE ~4×.  Default 3600 = 900 × 4 for 2× upscale.
+    overlap_mse_threshold: float = Field(default=3600.0, validation_alias="OVERLAP_MSE_THRESHOLD")
     max_tile_retries: int = Field(default=1, ge=0, le=3, validation_alias="MAX_TILE_RETRIES")
     quality_review_max_px: int = Field(default=2048, validation_alias="QUALITY_REVIEW_MAX_PX")
     quality_ai_critique_enabled: bool = Field(default=True, validation_alias="QUALITY_AI_CRITIQUE_ENABLED")

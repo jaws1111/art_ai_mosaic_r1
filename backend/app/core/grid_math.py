@@ -207,7 +207,13 @@ def closing_pass_tiles(
 
 
 def wavefront_order(rows: int, cols: int) -> list[list[TileCoord]]:
-    """Anti-diagonal groups; tiles in each group can run concurrently."""
+    """Anti-diagonal groups; tiles in each group can run concurrently.
+
+    Within each wave, tiles closest to the canvas center are sorted first so
+    that the visible fill radiates outward from the middle.
+    """
+    cx = (cols - 1) / 2.0
+    cy = (rows - 1) / 2.0
     max_sum = (rows - 1) + (cols - 1)
     waves: list[list[TileCoord]] = []
     for total in range(max_sum + 1):
@@ -217,6 +223,7 @@ def wavefront_order(rows: int, cols: int) -> list[list[TileCoord]]:
             if 0 <= col < cols:
                 wave.append((row, col))
         if wave:
+            wave.sort(key=lambda rc: (rc[0] - cy) ** 2 + (rc[1] - cx) ** 2)
             waves.append(wave)
     return waves
 

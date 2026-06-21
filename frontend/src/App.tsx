@@ -10,6 +10,7 @@ import {
 } from "./api";
 import MissionControl, { ViewMode } from "./components/MissionControl";
 import RegionLayoutEditor from "./components/RegionLayoutEditor";
+import PromptLibrary from "./components/PromptLibrary";
 
 // ── types ────────────────────────────────────────────────────────────────────
 type CanvasMode = "standard" | "panorama_h" | "panorama_v" | "spherical";
@@ -114,6 +115,7 @@ export default function App() {
   const [styleAnchor, setStyleAnchor] = useState("cinematic, photorealistic, 8K detail,");
   const [width, setWidth] = useState(5120);
   const [height, setHeight] = useState(5120);
+  const [showLibrary, setShowLibrary] = useState(false);
   const [canvasMode, setCanvasMode] = useState<CanvasMode>("standard");
   const [upscaleFactor, setUpscaleFactor] = useState(2);
   const [maxConcurrency, setMaxConcurrency] = useState(2);
@@ -252,7 +254,18 @@ export default function App() {
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5 min-h-0">
 
           {/* PROMPT */}
-          <Section title="Prompt">
+          <Section
+            title="Prompt"
+            action={
+              <button
+                type="button"
+                onClick={() => setShowLibrary(true)}
+                className="text-[10px] px-2 py-0.5 rounded border border-neutral-700 text-neutral-500 hover:border-accent hover:text-accent transition-colors"
+              >
+                Library
+              </button>
+            }
+          >
             <textarea
               className={`${inputCls} resize-none`}
               rows={5}
@@ -267,6 +280,13 @@ export default function App() {
               </span>
             </div>
           </Section>
+
+          {showLibrary && (
+            <PromptLibrary
+              onSelect={(p) => { setPrompt(p.prompt); setStyleAnchor(p.style); setShowLibrary(false); }}
+              onClose={() => setShowLibrary(false)}
+            />
+          )}
 
           {/* STYLE */}
           <Section title="Style anchor">

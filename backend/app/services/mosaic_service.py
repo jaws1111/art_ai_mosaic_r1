@@ -985,22 +985,6 @@ class MosaicService:
                                     resolution="2k",
                                 )
 
-                            await self._set_workers(
-                                job_id,
-                                cpu_active=True,
-                                cpu_label=f"Overlap strips r{row}c{col}",
-                            )
-                            left_strip = paths.ref_left_strip_path(seq, row, col)
-                            top_strip = paths.ref_top_strip_path(seq, row, col)
-                            save_overlap_reference(
-                                tile_path, "right", plan.overlap_px, left_strip, self.settings.placeholder_size
-                            )
-                            save_overlap_reference(
-                                tile_path, "bottom", plan.overlap_px, top_strip, self.settings.placeholder_size
-                            )
-                            left_ref_paths[key] = left_strip
-                            top_ref_paths[key] = top_strip
-
                             tiles = await self.store.get_tiles(job_id)
                             for tile in tiles:
                                 if tile.row == row and tile.col == col:
@@ -1017,6 +1001,28 @@ class MosaicService:
                                 left_processed,
                                 top_processed,
                             )
+
+                            # Overlap reference strips are extracted from the *processed*
+                            # (upscaled) tile so that size and sharpening match the
+                            # neighbors used in seam QA comparison.
+                            await self._set_workers(
+                                job_id,
+                                cpu_active=True,
+                                cpu_label=f"Overlap strips r{row}c{col}",
+                            )
+                            left_strip = paths.ref_left_strip_path(seq, row, col)
+                            top_strip = paths.ref_top_strip_path(seq, row, col)
+                            # Strips for xAI context come from the processed (upscaled) tile
+                            # so neighboring tiles see high-resolution, sharpened edges.
+                            strip_source = processed_path if processed_path.is_file() else tile_path
+                            save_overlap_reference(
+                                strip_source, "right", plan.overlap_px, left_strip, self.settings.placeholder_size
+                            )
+                            save_overlap_reference(
+                                strip_source, "bottom", plan.overlap_px, top_strip, self.settings.placeholder_size
+                            )
+                            left_ref_paths[key] = left_strip
+                            top_ref_paths[key] = top_strip
 
                             if not left_processed and not top_processed:
                                 break
@@ -1063,10 +1069,23 @@ class MosaicService:
                             tiles=tiles,
                         )
 
-                    await asyncio.gather(
-                        *[process_tile(seq_counter + i, row, col) for i, (row, col) in enumerate(wave)]
+                    results = await asyncio.gather(
+                        *[process_tile(seq_counter + i, row, col) for i, (row, col) in enumerate(wave)],
+                        return_exceptions=True,
                     )
                     seq_counter += len(wave)
+                    # Surface per-tile errors without killing the whole job.
+                    # A tile that fails is skipped; compositing will show a gap.
+                    fatal_errors = []
+                    for (row, col), result in zip(wave, results):
+                        if isinstance(result, BaseException):
+                            err_msg = f"Tile r{row}c{col} error: {result}"
+                            logger.error(err_msg, exc_info=result)
+                            await self._log(job_id, "system", f"Tile r{row}c{col} failed", str(result))
+                            if isinstance(result, (KeyboardInterrupt, asyncio.CancelledError)):
+                                fatal_errors.append(result)
+                    if fatal_errors:
+                        raise fatal_errors[0]
 
             await self._closing_pass_wrap(
                 job_id, request, plan, processed_paths, tile_paths
